@@ -1,6 +1,8 @@
 # Calendar Heatmap
 
 Calendar Heatmap adds a calendar view to Obsidian for navigating daily notes and visualizing writing activity with a heatmap.
+<img width="253" height="261" alt="截屏2026-05-31 16 49 06" src="https://github.com/user-attachments/assets/21e3eec9-361a-489a-bd8f-9c553e43d27a" />
+
 
 ## Features
 
@@ -12,11 +14,7 @@ Calendar Heatmap adds a calendar view to Obsidian for navigating daily notes and
 
 ## Usage
 
-After installation, Calendar Heatmap opens in the right sidebar. Use the command palette to run:
-
-- `打开热力图日历`
-- `打开周记`
-- `定位当前笔记`
+After installation, Calendar Heatmap opens in the right sidebar. 
 
 Click a day to open or create its daily note. Enable weekly note display in the plugin settings to show week numbers and open weekly notes.
 
