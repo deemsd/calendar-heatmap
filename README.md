@@ -23,9 +23,7 @@ Click a day to open or create its daily note. Enable weekly note display in the 
 
 Calendar Heatmap runs locally inside Obsidian. It does not use network requests, telemetry, ads, or automatic update mechanisms.
 
-## Attribution
 
-This plugin is based on [Obsidian Calendar Plugin](https://github.com/liamcain/obsidian-calendar-plugin) by Liam Cain, released under the MIT License.
 
 ## License
 
