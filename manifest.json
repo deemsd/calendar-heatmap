@@ -2,7 +2,7 @@
   "id": "calendar-heatmap",
   "name": "Calendar Heatmap",
   "description": "Calendar heatmap view based on notes created each day. New functions added by Ethan.",
-  "version": "1.7.0",
+  "version": "1.7.1",
   "author": "zen",
   "authorUrl": "https://github.com/deemsd/",
   "fundingUrl": "",

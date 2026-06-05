@@ -4316,8 +4316,10 @@ const customTagsSource = {
 };
 
 let createdNotesHeatmapCache = null;
+let createdNotesHeatmapFileStats = new Map();
 function invalidateCreatedNotesHeatmap() {
     createdNotesHeatmapCache = null;
+    createdNotesHeatmapFileStats.clear();
 }
 function getHeatmapDailyNoteFolderPath() {
     const currentSettings = get_store_value(settings);
@@ -4368,30 +4370,13 @@ function getHeatmapDateKey(file, fileContents, isDailyNote) {
 }
 async function buildCreatedNotesByDay() {
     const stats = {};
-    const { vault } = window.app;
-    const includeDailyNotes = get_store_value(settings).includeDailyNotesInHeatmap !== false;
-    const files = vault.getMarkdownFiles();
+    const files = window.app.vault.getMarkdownFiles();
+    createdNotesHeatmapFileStats.clear();
     await Promise.all(files.map(async (file) => {
-        if (!file.stat || typeof file.stat.ctime !== "number") {
-            return;
-        }
-        const isDailyNote = isHeatmapDailyNote(file);
-        if (isDailyNote && !includeDailyNotes) {
-            return;
-        }
-        try {
-            const fileContents = await vault.cachedRead(file);
-            const dayKey = getHeatmapDateKey(file, fileContents, isDailyNote);
-            if (!dayKey) {
-                return;
-            }
-            const current = stats[dayKey] || (stats[dayKey] = { count: 0, words: 0 });
-            current.count += 1;
-            current.words += getWordCount(fileContents);
-        }
-        catch (err) {
-            console.debug("[Calendar Heatmap] Failed to read note for heatmap", file.path, err);
-        }
+        const stat = await getCreatedNotesHeatmapFileStat(file);
+        if (!stat) return;
+        createdNotesHeatmapFileStats.set(file.path, stat);
+        applyCreatedNotesHeatmapDelta(stats, stat.dayKey, stat.count, stat.words);
     }));
     return stats;
 }
@@ -4400,6 +4385,75 @@ async function getCreatedNotesByDay() {
         createdNotesHeatmapCache = buildCreatedNotesByDay();
     }
     return createdNotesHeatmapCache;
+}
+function applyCreatedNotesHeatmapDelta(stats, dayKey, countDelta, wordsDelta) {
+    if (!dayKey) return;
+    const current = stats[dayKey] || (stats[dayKey] = { count: 0, words: 0 });
+    current.count += countDelta;
+    current.words += wordsDelta;
+    if (current.count <= 0 && current.words <= 0) {
+        delete stats[dayKey];
+    }
+}
+async function getCreatedNotesHeatmapFileStat(file) {
+    if (!(file instanceof obsidian.TFile) || file.extension !== "md") {
+        return null;
+    }
+    if (!file.stat || typeof file.stat.ctime !== "number") {
+        return null;
+    }
+    const includeDailyNotes = get_store_value(settings).includeDailyNotesInHeatmap !== false;
+    const isDailyNote = isHeatmapDailyNote(file);
+    if (isDailyNote && !includeDailyNotes) {
+        return null;
+    }
+    try {
+        const fileContents = await window.app.vault.cachedRead(file);
+        const dayKey = getHeatmapDateKey(file, fileContents, isDailyNote);
+        if (!dayKey) {
+            return null;
+        }
+        return {
+            dayKey,
+            count: 1,
+            words: getWordCount(fileContents),
+        };
+    }
+    catch (err) {
+        console.debug("[Calendar Heatmap] Failed to read note for heatmap", file.path, err);
+        return null;
+    }
+}
+function removeCreatedNotesHeatmapFileContribution(stats, file) {
+    const previous = createdNotesHeatmapFileStats.get(file.path);
+    if (!previous) {
+        return false;
+    }
+    applyCreatedNotesHeatmapDelta(stats, previous.dayKey, -previous.count, -previous.words);
+    createdNotesHeatmapFileStats.delete(file.path);
+    return true;
+}
+async function updateCreatedNotesHeatmapFile(file) {
+    if (!(file instanceof obsidian.TFile) || file.extension !== "md" || !createdNotesHeatmapCache) {
+        return false;
+    }
+    const stats = await getCreatedNotesByDay();
+    removeCreatedNotesHeatmapFileContribution(stats, file);
+    const next = await getCreatedNotesHeatmapFileStat(file);
+    if (!next) {
+        return true;
+    }
+    createdNotesHeatmapFileStats.set(file.path, next);
+    applyCreatedNotesHeatmapDelta(stats, next.dayKey, next.count, next.words);
+    return true;
+}
+async function removeCreatedNotesHeatmapFile(file) {
+    if (!(file instanceof obsidian.TFile) || file.extension !== "md" || !createdNotesHeatmapCache) {
+        return false;
+    }
+    const stats = await getCreatedNotesByDay();
+    removeCreatedNotesHeatmapFileContribution(stats, file);
+    return true;
 }
 function getCreatedNotesHeatmapLevel(count) {
     if (!count) {
@@ -4466,6 +4520,8 @@ class CalendarView extends obsidian.ItemView {
         this.onHoverWeek = this.onHoverWeek.bind(this);
         this.onContextMenuDay = this.onContextMenuDay.bind(this);
         this.onContextMenuWeek = this.onContextMenuWeek.bind(this);
+        this.modifiedFileRefreshTimer = null;
+        this.pendingModifiedFiles = new Map();
         this.registerEvent(
         // eslint-disable-next-line @typescript-eslint/no-explicit-any
         this.app.workspace.on("periodic-notes:settings-updated", this.onNoteSettingsUpdate));
@@ -4501,6 +4557,11 @@ class CalendarView extends obsidian.ItemView {
         return "calendar-with-checkmark";
     }
     onClose() {
+        if (this.modifiedFileRefreshTimer) {
+            window.clearTimeout(this.modifiedFileRefreshTimer);
+            this.modifiedFileRefreshTimer = null;
+        }
+        this.pendingModifiedFiles.clear();
         if (this.calendar) {
             this.calendar.$destroy();
         }
@@ -4573,9 +4634,33 @@ class CalendarView extends obsidian.ItemView {
         weeklyNotes.reindex();
         this.updateActiveFile();
     }
+    scheduleModifiedFileRefresh(file) {
+        this.pendingModifiedFiles.set(file.path, file);
+        if (this.modifiedFileRefreshTimer) {
+            window.clearTimeout(this.modifiedFileRefreshTimer);
+        }
+        this.modifiedFileRefreshTimer = window.setTimeout(async () => {
+            const files = Array.from(this.pendingModifiedFiles.values());
+            this.pendingModifiedFiles.clear();
+            this.modifiedFileRefreshTimer = null;
+            let shouldTick = false;
+            for (const modifiedFile of files) {
+                shouldTick = (await updateCreatedNotesHeatmapFile(modifiedFile)) || shouldTick;
+                if (getDateFromFile_1(modifiedFile, "day") || getDateFromFile_1(modifiedFile, "week")) {
+                    shouldTick = true;
+                }
+            }
+            if (shouldTick && this.calendar) {
+                this.calendar.tick();
+            }
+        }, 1200);
+    }
     async onFileDeleted(file) {
         if (file instanceof obsidian.TFile && file.extension === "md") {
-            invalidateCreatedNotesHeatmap();
+            const updatedHeatmap = await removeCreatedNotesHeatmapFile(file);
+            if (!updatedHeatmap) {
+                invalidateCreatedNotesHeatmap();
+            }
             if (this.calendar) {
                 this.calendar.tick();
             }
@@ -4591,28 +4676,31 @@ class CalendarView extends obsidian.ItemView {
     }
     async onFileModified(file) {
         if (file instanceof obsidian.TFile && file.extension === "md") {
-            invalidateCreatedNotesHeatmap();
-            if (this.calendar) {
-                this.calendar.tick();
-            }
-        }
-        const date = getDateFromFile_1(file, "day") || getDateFromFile_1(file, "week");
-        if (date && this.calendar) {
-            this.calendar.tick();
+            this.scheduleModifiedFileRefresh(file);
         }
     }
-    onFileCreated(file) {
+    async onFileCreated(file) {
         if (this.app.workspace.layoutReady && this.calendar) {
+            let shouldTick = false;
             if (file instanceof obsidian.TFile && file.extension === "md") {
-                invalidateCreatedNotesHeatmap();
-                this.calendar.tick();
+                const updatedHeatmap = await updateCreatedNotesHeatmapFile(file);
+                if (!updatedHeatmap) {
+                    invalidateCreatedNotesHeatmap();
+                }
+                shouldTick = true;
+            }
+            else {
+                shouldTick = true;
             }
             if (getDateFromFile_1(file, "day")) {
                 dailyNotes.reindex();
-                this.calendar.tick();
+                shouldTick = true;
             }
             if (getDateFromFile_1(file, "week")) {
                 weeklyNotes.reindex();
+                shouldTick = true;
+            }
+            if (shouldTick && this.calendar) {
                 this.calendar.tick();
             }
         }
@@ -4757,3 +4845,5 @@ class CalendarPlugin extends obsidian.Plugin {
 }
 
 module.exports = CalendarPlugin;
+
+/* nosourcemap */

@@ -1,5 +1,31 @@
 # Changelog
 
+## 1.7.1 (2026-06-05)
+
+### English Release Notes
+
+#### Bug Fixes
+
+- **Reduced sidebar flicker while editing**: Fixed an issue where every Markdown file modification invalidated the full created-notes heatmap cache and triggered a full vault-wide word-count rebuild. This could make the calendar panel visibly flicker while typing in Obsidian, especially in larger vaults.
+
+#### Performance
+
+- **Incremental heatmap updates**: The plugin now tracks each Markdown file's contribution to the created-notes heatmap and updates only the changed file after edits, instead of rereading all Markdown files.
+- **Debounced modify refreshes**: Rapid consecutive `modify` events are now batched with a short debounce, reducing repeated calendar redraws while typing.
+- **Cleaner create/delete handling**: File creation and deletion paths now use the incremental heatmap cache when possible and avoid unnecessary full-cache invalidation.
+
+### 中文发布说明
+
+#### 修复
+
+- **减少编辑时侧栏闪烁**：修复了任意 Markdown 文件修改都会清空“新增笔记/新增字数”热力图缓存，并触发全库重新统计字数的问题。这个问题会导致在 Obsidian 输入时，左侧 Calendar Heatmap 面板出现明显闪烁，尤其是在笔记数量较多的库中。
+
+#### 性能优化
+
+- **增量更新热力图**：插件现在会记录每个 Markdown 文件对热力图的贡献，编辑后只重新统计被修改的文件，不再重新读取全部 Markdown 文件。
+- **合并高频修改事件**：对连续的 `modify` 事件增加短时间防抖，减少输入过程中的重复刷新。
+- **优化新建/删除文件刷新**：新建和删除文件时优先使用增量缓存更新，减少不必要的全量缓存失效。
+
 ## 1.7.0 (2026-06-05)
 
 ### Bug Fixes
