@@ -3,8 +3,8 @@
   "name": "Calendar Heatmap",
   "description": "Calendar heatmap view based on notes created each day. New functions added by Ethan.",
   "version": "1.7.0",
-  "author": "lipear",
-  "authorUrl": "https://github.com/Linython/",
+  "author": "zen",
+  "authorUrl": "https://github.com/deemsd/",
   "fundingUrl": "",
   "isDesktopOnly": false,
   "minAppVersion": "0.9.11"
