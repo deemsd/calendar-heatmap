@@ -756,12 +756,16 @@ const weekdays$1 = [
     "friday",
     "saturday"
 ];
+const defaultHeatmapWordThresholds = [300, 800, 1500];
+const defaultHeatmapCountThresholds = [1, 3, 6];
 const defaultSettings = Object.freeze({
     shouldConfirmBeforeCreate: true,
     weekStart: "locale",
     customDailyNoteFolder: "/",
     heatmapMetric: "words",
     includeDailyNotesInHeatmap: true,
+    heatmapWordThresholds: defaultHeatmapWordThresholds,
+    heatmapCountThresholds: defaultHeatmapCountThresholds,
     fontSize: 15,
     showWeeklyNote: false,
     weeklyNoteFormat: "",
@@ -769,6 +773,17 @@ const defaultSettings = Object.freeze({
     weeklyNoteFolder: "",
     localeOverride: "system-default"
 });
+function normalizeHeatmapThresholds(value, fallback) {
+    const source = Array.isArray(value) ? value : [];
+    const normalized = fallback.map((defaultValue, index) => {
+        const parsed = Number.parseInt(source[index], 10);
+        if (!Number.isFinite(parsed) || parsed <= 0) {
+            return defaultValue;
+        }
+        return parsed;
+    });
+    return normalized.sort((a, b) => a - b);
+}
 function appHasPeriodicNotesPluginLoaded() {
     var _a, _b;
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -797,6 +812,7 @@ class CalendarSettingsTab extends obsidian.PluginSettingTab {
             text: "通用设置"
         });
         this.addHeatmapMetricSetting();
+        this.addHeatmapThresholdSettings();
         this.addIncludeDailyNotesInHeatmapSetting();
         this.addWeekStartSetting();
         this.addConfirmCreateSetting();
@@ -835,6 +851,44 @@ class CalendarSettingsTab extends obsidian.PluginSettingTab {
                 }));
             });
         });
+    }
+    addHeatmapThresholdSetting(name, desc, optionKey, fallback) {
+        const current = normalizeHeatmapThresholds(this.plugin.options[optionKey], fallback);
+        const inputs = [];
+        const setting = new obsidian.Setting(this.containerEl)
+            .setName(name)
+            .setDesc(desc);
+        current.forEach((threshold, index) => {
+            setting.addText((textfield) => {
+                inputs[index] = textfield;
+                textfield.inputEl.type = "number";
+                textfield.inputEl.min = "1";
+                textfield.inputEl.step = "1";
+                textfield.inputEl.style.width = "64px";
+                textfield.setValue(String(threshold));
+                textfield.onChange(async () => {
+                    const next = normalizeHeatmapThresholds(inputs.map((input) => input.getValue()), fallback);
+                    await this.plugin.writeOptions(() => ({
+                        [optionKey]: next
+                    }));
+                });
+                textfield.inputEl.addEventListener("blur", () => {
+                    const next = normalizeHeatmapThresholds(inputs.map((input) => input.getValue()), fallback);
+                    inputs.forEach((input, inputIndex) => input.setValue(String(next[inputIndex])));
+                });
+            });
+        });
+    }
+    addHeatmapThresholdSettings() {
+        this.containerEl.createEl("h3", {
+            text: "热力图阈值"
+        });
+        this.containerEl.createEl("p", {
+            cls: "setting-item-description",
+            text: "三个数值分别控制浅色、中色、深色的上限；超过第三档会使用最深色。"
+        });
+        this.addHeatmapThresholdSetting("新增字数阈值", "默认：300 / 800 / 1500。当天新增字数为 0 时不着色。", "heatmapWordThresholds", defaultHeatmapWordThresholds);
+        this.addHeatmapThresholdSetting("新增笔记篇数阈值", "默认：1 / 3 / 6。当天新增笔记数为 0 时不着色。", "heatmapCountThresholds", defaultHeatmapCountThresholds);
     }
     addIncludeDailyNotesInHeatmapSetting() {
         new obsidian.Setting(this.containerEl)
@@ -1241,11 +1295,15 @@ async function tryToCreateDailyNote(date, inNewSplit, settings, cb) {
     const filename = date.format(format);
     const createFile = async () => {
         const dailyNote = await createDailyNote_1(date);
+        if (!dailyNote) {
+            return;
+        }
         const leaf = inNewSplit
             ? workspace.splitActiveLeaf()
             : workspace.getUnpinnedLeaf();
         await leaf.openFile(dailyNote, { active: true });
         cb === null || cb === void 0 ? void 0 : cb(dailyNote);
+        workspace.setActiveLeaf(leaf, true, true);
     };
     if (settings.shouldConfirmBeforeCreate) {
         createConfirmationDialog({
@@ -2320,8 +2378,8 @@ function getMonth(displayedMonth, ..._args) {
 
 function add_css$4() {
 	var style = element("style");
-	style.id = "svelte-q3wqg9-heatmap-style-v6";
-	style.textContent = ".day.svelte-q3wqg9{align-items:center!important;aspect-ratio:1/1!important;background-color:var(--color-background-day);border-radius:5px;box-sizing:border-box!important;color:var(--color-text-day);cursor:pointer;display:flex!important;flex-direction:column;font-size:0.68em;height:23px!important;justify-content:center!important;min-height:23px!important;max-height:23px!important;overflow:visible;padding:0!important;position:relative;text-align:center;transition:background-color 0.12s ease-in,color 0.12s ease-in,box-shadow 0.12s ease-in;vertical-align:baseline;width:23px!important;min-width:23px!important;max-width:23px!important}.container.is-mobile.svelte-pcimu8 .day.svelte-q3wqg9{border-radius:6px;font-size:0.72em;height:var(--heatmap-cell-mobile)!important;min-height:var(--heatmap-cell-mobile)!important;max-height:var(--heatmap-cell-mobile)!important;width:var(--heatmap-cell-mobile)!important;min-width:var(--heatmap-cell-mobile)!important;max-width:var(--heatmap-cell-mobile)!important}.day.svelte-q3wqg9:hover{box-shadow:inset 0 0 0 1px rgba(79,195,138,.45)}.day[data-heatmap-tooltip].svelte-q3wqg9:hover::after{background:rgba(0,0,0,.86);border-radius:5px;bottom:calc(100% + 6px);color:#fff;content:attr(data-heatmap-tooltip);font-size:11px;left:50%;line-height:1.35;padding:4px 8px;pointer-events:none;position:absolute;transform:translateX(-50%);white-space:nowrap;z-index:9999}.day[data-heatmap-tooltip].svelte-q3wqg9:hover::before{border:5px solid transparent;border-top-color:rgba(0,0,0,.86);bottom:calc(100% - 4px);content:\"\";left:50%;pointer-events:none;position:absolute;transform:translateX(-50%);z-index:9999}.adjacent-month.svelte-q3wqg9{opacity:0.25}.today.svelte-q3wqg9{color:var(--interactive-accent);font-weight:700}.day.heatmap-level-0.svelte-q3wqg9{background-color:rgba(127,127,127,.12)}.day.heatmap-level-1.svelte-q3wqg9{background-color:rgba(79,195,138,.18)}.day.heatmap-level-2.svelte-q3wqg9{background-color:rgba(79,195,138,.34)}.day.heatmap-level-3.svelte-q3wqg9{background-color:rgba(79,195,138,.52)}.day.heatmap-level-4.svelte-q3wqg9{background-color:rgba(79,195,138,.72)}.day.svelte-q3wqg9:active,.active.svelte-q3wqg9,.active.today.svelte-q3wqg9{color:var(--text-on-accent);background-color:var(--interactive-accent);box-shadow:inset 0 0 0 2px var(--interactive-accent-hover)}.dot-container.svelte-q3wqg9{bottom:-7px;display:flex!important;flex-wrap:nowrap;justify-content:center;left:0;line-height:5px;min-height:5px;pointer-events:none;position:absolute;right:0}.dot-container.svelte-q3wqg9 .dot,.dot-container.svelte-q3wqg9 .hollow{height:5px;margin:0;width:5px}";
+	style.id = "svelte-q3wqg9-heatmap-style-v7";
+	style.textContent = ".day.svelte-q3wqg9{align-items:center!important;aspect-ratio:1/1!important;background-color:var(--color-background-day);border-radius:5px;box-sizing:border-box!important;color:var(--color-text-day);cursor:pointer;display:flex!important;flex-direction:column;font-size:0.68em;height:23px!important;justify-content:center!important;min-height:23px!important;max-height:23px!important;overflow:visible;padding:0!important;position:relative;text-align:center;transition:background-color 0.12s ease-in,color 0.12s ease-in,box-shadow 0.12s ease-in;vertical-align:baseline;width:23px!important;min-width:23px!important;max-width:23px!important}.container.is-mobile.svelte-pcimu8 .day.svelte-q3wqg9{border-radius:6px;font-size:0.72em;height:var(--heatmap-cell-mobile)!important;min-height:var(--heatmap-cell-mobile)!important;max-height:var(--heatmap-cell-mobile)!important;width:var(--heatmap-cell-mobile)!important;min-width:var(--heatmap-cell-mobile)!important;max-width:var(--heatmap-cell-mobile)!important}.day.svelte-q3wqg9:hover{box-shadow:inset 0 0 0 1px rgba(79,195,138,.45)}.day[data-heatmap-tooltip].svelte-q3wqg9:hover::after{background:rgba(0,0,0,.86);border-radius:5px;bottom:calc(100% + 6px);color:#fff;content:attr(data-heatmap-tooltip);font-size:11px;left:50%;line-height:1.35;padding:4px 8px;pointer-events:none;position:absolute;transform:translateX(-50%);white-space:nowrap;z-index:9999}.day[data-heatmap-tooltip].svelte-q3wqg9:hover::before{border:5px solid transparent;border-top-color:rgba(0,0,0,.86);bottom:calc(100% - 4px);content:\"\";left:50%;pointer-events:none;position:absolute;transform:translateX(-50%);z-index:9999}.adjacent-month.svelte-q3wqg9{opacity:0.25}.today.svelte-q3wqg9{color:var(--interactive-accent);font-weight:700}.day.heatmap-level-0.svelte-q3wqg9{background-color:rgba(127,127,127,.12)}.day.heatmap-level-1.svelte-q3wqg9{background-color:rgba(79,195,138,.18)}.day.heatmap-level-2.svelte-q3wqg9{background-color:rgba(79,195,138,.34)}.day.heatmap-level-3.svelte-q3wqg9{background-color:rgba(79,195,138,.52)}.day.heatmap-level-4.svelte-q3wqg9{background-color:rgba(79,195,138,.72)}.day.svelte-q3wqg9:active,.day.active.svelte-q3wqg9,.active.today.svelte-q3wqg9{color:var(--text-on-accent);background-color:var(--interactive-accent);box-shadow:inset 0 0 0 2px var(--interactive-accent-hover)}.dot-container.svelte-q3wqg9{bottom:-7px;display:flex!important;flex-wrap:nowrap;justify-content:center;left:0;line-height:5px;min-height:5px;pointer-events:none;position:absolute;right:0}.dot-container.svelte-q3wqg9 .dot,.dot-container.svelte-q3wqg9 .hollow{height:5px;margin:0;width:5px}";
 	style.textContent += ".dot-container.svelte-q3wqg9{display:none!important}";
 	append(document.head, style);
 }
@@ -2442,9 +2500,9 @@ function create_default_slot$1(ctx) {
 
 			if (!mounted) {
 				dispose = [
-					listen(div1, "click", function () {
-						if (is_function(/*onClick*/ ctx[2] && /*click_handler*/ ctx[8])) (/*onClick*/ ctx[2] && /*click_handler*/ ctx[8]).apply(this, arguments);
-					}),
+						listen(div1, "pointerdown", function () {
+							if (is_function(/*onClick*/ ctx[2] && /*click_handler*/ ctx[8])) (/*onClick*/ ctx[2] && /*click_handler*/ ctx[8]).apply(this, arguments);
+						}),
 					listen(div1, "contextmenu", function () {
 						if (is_function(/*onContextMenu*/ ctx[3] && /*contextmenu_handler*/ ctx[9])) (/*onContextMenu*/ ctx[3] && /*contextmenu_handler*/ ctx[9]).apply(this, arguments);
 					}),
@@ -2590,7 +2648,14 @@ function instance$4($$self, $$props, $$invalidate) {
 	let { today } = $$props;
 	let { displayedMonth = null } = $$props;
 	let { selectedId = null } = $$props;
-	const click_handler = e => onClick(date, isMetaPressed(e));
+	const click_handler = e => {
+		if (typeof e.button === "number" && e.button !== 0) {
+			return;
+		}
+		e.preventDefault();
+		e.stopPropagation();
+		onClick(date, isMetaPressed(e));
+	};
 	const contextmenu_handler = e => onContextMenu(date, e);
 	const pointerover_handler = e => onHover(date, e.target, isMetaPressed(e));
 
@@ -2623,7 +2688,7 @@ function instance$4($$self, $$props, $$invalidate) {
 class Day extends SvelteComponent {
 	constructor(options) {
 		super();
-		if (!document.getElementById("svelte-q3wqg9-heatmap-style-v6")) add_css$4();
+		if (!document.getElementById("svelte-q3wqg9-heatmap-style-v7")) add_css$4();
 
 		init(this, options, instance$4, create_fragment$4, not_equal, {
 			date: 0,
@@ -2643,7 +2708,7 @@ class Day extends SvelteComponent {
 function add_css$3() {
 	var style = element("style");
 	style.id = "svelte-156w7na-style";
-	style.textContent = ".arrow.svelte-156w7na.svelte-156w7na{align-items:center;cursor:pointer;display:flex;justify-content:center;width:24px}.arrow.is-mobile.svelte-156w7na.svelte-156w7na{width:32px}.right.svelte-156w7na.svelte-156w7na{transform:rotate(180deg)}.arrow.svelte-156w7na svg.svelte-156w7na{color:var(--color-arrow);height:16px;width:16px}";
+	style.textContent = ".arrow.svelte-156w7na.svelte-156w7na{align-items:center;cursor:pointer;display:flex;justify-content:center;width:18px}.arrow.is-mobile.svelte-156w7na.svelte-156w7na{width:32px}.right.svelte-156w7na.svelte-156w7na{transform:rotate(180deg)}.arrow.svelte-156w7na svg.svelte-156w7na{color:var(--color-arrow);height:16px;width:16px}";
 	append(document.head, style);
 }
 
@@ -2735,7 +2800,7 @@ class Arrow extends SvelteComponent {
 function add_css$2() {
 	var style = element("style");
 	style.id = "svelte-1vwr9dd-style-custom-v6";
-	style.textContent = ".nav.svelte-1vwr9dd.svelte-1vwr9dd{align-items:center;display:block;height:1.35em;margin:0.45em 0 0.65em;padding:0;position:relative;transform:none;width:220px}.nav.is-mobile.svelte-1vwr9dd.svelte-1vwr9dd{padding:0;width:var(--heatmap-mobile-nav-width,278px)}.title.svelte-1vwr9dd.svelte-1vwr9dd{color:var(--color-text-title);font-size:1.08em;left:11px;line-height:1;margin:0;position:absolute;top:0;transform:none}.is-mobile.svelte-1vwr9dd .title.svelte-1vwr9dd{font-size:1.02em}.month.svelte-1vwr9dd.svelte-1vwr9dd{font-weight:600;text-transform:none}.year.svelte-1vwr9dd.svelte-1vwr9dd{display:none}.right-nav.svelte-1vwr9dd.svelte-1vwr9dd{align-items:center;display:flex;justify-content:center;left:137px;margin-left:0;position:absolute;top:50%;transform:translateY(-50%);width:78px}.nav.is-mobile.svelte-1vwr9dd .right-nav.svelte-1vwr9dd{left:auto;right:8px;width:92px}.reset-button.svelte-1vwr9dd.svelte-1vwr9dd{align-items:center;cursor:pointer;border-radius:4px;color:var(--text-muted);display:flex;font-size:0.68em;font-weight:600;justify-content:center;letter-spacing:0;line-height:1;margin:0;width:30px;min-width:30px;padding:0;text-transform:uppercase;white-space:nowrap}.is-mobile.svelte-1vwr9dd .reset-button.svelte-1vwr9dd{display:none}";
+	style.textContent = ".nav.svelte-1vwr9dd.svelte-1vwr9dd{align-items:center;display:block;height:1.35em;margin:0.55em 0 0.55em;padding:0;position:relative;transform:none;width:var(--heatmap-nav-width,220px)}.nav.is-mobile.svelte-1vwr9dd.svelte-1vwr9dd{padding:0;width:var(--heatmap-mobile-nav-width,278px)}.title.svelte-1vwr9dd.svelte-1vwr9dd{color:var(--color-text-title);font-size:1.08em;left:11px;line-height:1;margin:0;position:absolute;top:50%;transform:translateY(-50%)}.is-mobile.svelte-1vwr9dd .title.svelte-1vwr9dd{font-size:1.02em}.month.svelte-1vwr9dd.svelte-1vwr9dd{font-weight:600;text-transform:none}.year.svelte-1vwr9dd.svelte-1vwr9dd{display:none}.right-nav.svelte-1vwr9dd.svelte-1vwr9dd{align-items:center;display:flex;justify-content:center;left:auto;margin-left:0;position:absolute;right:0;top:50%;transform:translateY(-50%);width:60px}.nav.is-mobile.svelte-1vwr9dd .right-nav.svelte-1vwr9dd{left:auto;right:8px;width:92px}.reset-button.svelte-1vwr9dd.svelte-1vwr9dd{align-items:center;cursor:pointer;border-radius:4px;color:var(--text-muted);display:flex;font-size:0.68em;font-weight:600;justify-content:center;letter-spacing:0;line-height:1;margin:0;width:24px;min-width:24px;padding:0;text-transform:uppercase;white-space:nowrap}.is-mobile.svelte-1vwr9dd .reset-button.svelte-1vwr9dd{display:none}";
 	append(document.head, style);
 }
 
@@ -2871,8 +2936,7 @@ function instance$2($$self, $$props, $$invalidate) {
 	let { incrementDisplayedMonth } = $$props;
 	let { decrementDisplayedMonth } = $$props;
 
-	// Get the word 'Today' but localized to the current language
-	const todayDisplayStr = today.calendar().split(/\d|\s/)[0];
+	const todayDisplayStr = "本月";
 
 	// eslint-disable-next-line @typescript-eslint/no-explicit-any
 	let isMobile = window.app.isMobile;
@@ -3243,7 +3307,7 @@ function getWeeklyMetadata(sources, date, ..._args) {
 function add_css$6() {
 	var style = element("style");
 	style.id = "svelte-pcimu8-heatmap-style-v8";
-	style.textContent = ".container.svelte-pcimu8{--color-background-heading:transparent;--color-background-day:transparent;--color-background-weeknum:transparent;--color-background-weekend:transparent;--color-dot:var(--text-muted);--color-arrow:var(--text-muted);--color-button:var(--text-muted);--color-text-title:var(--text-normal);--color-text-heading:var(--text-muted);--color-text-day:var(--text-normal);--color-text-today:var(--interactive-accent);--color-text-weeknum:var(--text-muted);--heatmap-cell-gap:3.8px}.container.svelte-pcimu8{padding:0;transform:translateX(-18px)}.container.is-mobile.svelte-pcimu8{--heatmap-cell-gap:clamp(4px,1.15vw,5px);--heatmap-cell-mobile:clamp(28px,7.6vw,33px);--heatmap-mobile-nav-width:clamp(278px,78vw,312px);margin:0 auto;max-width:100%;padding:0;transform:translateX(-6px);width:max-content}th.svelte-pcimu8{text-align:center}.weekend.svelte-pcimu8{background-color:var(--color-background-weekend)}.calendar.svelte-pcimu8{border-collapse:separate!important;border-spacing:var(--heatmap-cell-gap)!important;margin:0!important;table-layout:auto!important;width:auto!important}.calendar.svelte-pcimu8 td{height:23px!important;max-width:23px!important;min-width:23px!important;padding:0!important;text-align:center;vertical-align:middle;width:23px!important}.calendar.svelte-pcimu8 th{max-width:23px!important;min-width:23px!important;overflow:hidden;padding:2px 0!important;text-align:center;width:23px!important}.container.is-mobile.svelte-pcimu8 .calendar.svelte-pcimu8 td{height:var(--heatmap-cell-mobile)!important;max-width:var(--heatmap-cell-mobile)!important;min-width:var(--heatmap-cell-mobile)!important;width:var(--heatmap-cell-mobile)!important}.container.is-mobile.svelte-pcimu8 .calendar.svelte-pcimu8 th{max-width:var(--heatmap-cell-mobile)!important;min-width:var(--heatmap-cell-mobile)!important;width:var(--heatmap-cell-mobile)!important}th.svelte-pcimu8{background-color:var(--color-background-heading);color:var(--color-text-heading);font-size:0.58em;letter-spacing:0;padding:2px 0;text-transform:none}";
+	style.textContent = ".container.svelte-pcimu8{--color-background-heading:transparent;--color-background-day:transparent;--color-background-weeknum:transparent;--color-background-weekend:transparent;--color-dot:var(--text-muted);--color-arrow:var(--text-muted);--color-button:var(--text-muted);--color-text-title:var(--text-normal);--color-text-heading:var(--text-muted);--color-text-day:var(--text-normal);--color-text-today:var(--interactive-accent);--color-text-weeknum:var(--text-muted);--heatmap-cell-gap:3.8px;--heatmap-nav-width:187px}.container.svelte-pcimu8:has(.week-num){--heatmap-nav-width:215px}.container.svelte-pcimu8{padding:0;transform:translateX(-18px)}.container.is-mobile.svelte-pcimu8{--heatmap-cell-gap:clamp(4px,1.15vw,5px);--heatmap-cell-mobile:clamp(28px,7.6vw,33px);--heatmap-mobile-nav-width:clamp(278px,78vw,312px);margin:0 auto;max-width:100%;padding:0;transform:translateX(-6px);width:max-content}th.svelte-pcimu8{text-align:center}.weekend.svelte-pcimu8{background-color:var(--color-background-weekend)}.calendar.svelte-pcimu8{border-collapse:separate!important;border-spacing:var(--heatmap-cell-gap)!important;margin:0!important;table-layout:auto!important;width:auto!important}.calendar.svelte-pcimu8 td{height:23px!important;max-width:23px!important;min-width:23px!important;padding:0!important;text-align:center;vertical-align:middle;width:23px!important}.calendar.svelte-pcimu8 th{max-width:23px!important;min-width:23px!important;overflow:hidden;padding:2px 0!important;text-align:center;width:23px!important}.container.is-mobile.svelte-pcimu8 .calendar.svelte-pcimu8 td{height:var(--heatmap-cell-mobile)!important;max-width:var(--heatmap-cell-mobile)!important;min-width:var(--heatmap-cell-mobile)!important;width:var(--heatmap-cell-mobile)!important}.container.is-mobile.svelte-pcimu8 .calendar.svelte-pcimu8 th{max-width:var(--heatmap-cell-mobile)!important;min-width:var(--heatmap-cell-mobile)!important;width:var(--heatmap-cell-mobile)!important}th.svelte-pcimu8{background-color:var(--color-background-heading);color:var(--color-text-heading);font-size:0.58em;letter-spacing:0;padding:2px 0;text-transform:none}";
 	append(document.head, style);
 }
 
@@ -4459,13 +4523,14 @@ function getCreatedNotesHeatmapLevel(count) {
     if (!count) {
         return 0;
     }
-    if (count === 1) {
+    const thresholds = normalizeHeatmapThresholds(get_store_value(settings).heatmapCountThresholds, defaultHeatmapCountThresholds);
+    if (count <= thresholds[0]) {
         return 1;
     }
-    if (count <= 3) {
+    if (count <= thresholds[1]) {
         return 2;
     }
-    if (count <= 6) {
+    if (count <= thresholds[2]) {
         return 3;
     }
     return 4;
@@ -4474,13 +4539,14 @@ function getCreatedWordsHeatmapLevel(wordCount) {
     if (!wordCount) {
         return 0;
     }
-    if (wordCount <= 300) {
+    const thresholds = normalizeHeatmapThresholds(get_store_value(settings).heatmapWordThresholds, defaultHeatmapWordThresholds);
+    if (wordCount <= thresholds[0]) {
         return 1;
     }
-    if (wordCount <= 800) {
+    if (wordCount <= thresholds[1]) {
         return 2;
     }
-    if (wordCount <= 1500) {
+    if (wordCount <= thresholds[2]) {
         return 3;
     }
     return 4;
@@ -4775,6 +4841,7 @@ class CalendarView extends obsidian.ItemView {
             : workspace.getUnpinnedLeaf();
         await leaf.openFile(existingFile, { active: true, mode });
         activeFile.setFile(existingFile);
+        workspace.setActiveLeaf(leaf, true, true);
     }
 }
 

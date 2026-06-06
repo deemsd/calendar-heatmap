@@ -1,8 +1,8 @@
 {
   "id": "calendar-heatmap",
   "name": "Calendar Heatmap",
-  "description": "Calendar heatmap view based on notes created each day. New functions added by Ethan.",
-  "version": "1.7.1",
+  "description": "Visualize daily note creation and writing activity as a sidebar heatmap.",
+  "version": "1.8.0",
   "author": "zen",
   "authorUrl": "https://github.com/deemsd/",
   "fundingUrl": "",

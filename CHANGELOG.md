@@ -1,5 +1,39 @@
 # Changelog
 
+## 1.8.0 (2026-06-06)
+
+### English Release Notes
+
+#### New Features
+
+- **Custom heatmap thresholds**: Added settings for custom word-count and note-count heatmap thresholds. Users can now tune the three color levels to match their own writing volume instead of relying on fixed defaults.
+- **Monthly activity summary**: Added a monthly summary below the calendar showing the number of notes created and words added in the currently displayed month.
+
+#### Bug Fixes
+
+- **More reliable first-click navigation**: Fixed an issue where the first click on a calendar date could be consumed by Obsidian pane activation, requiring a second click to open the daily note.
+- **Marketplace metadata warning**: Updated the plugin description so it no longer starts with the plugin name, addressing the Obsidian marketplace warning.
+
+#### Improvements
+
+- **Calendar header alignment**: Refined the month title and navigation controls so the header is visually centered and the right arrow aligns with the calendar grid.
+
+### 中文发布说明
+
+#### 新功能
+
+- **热力图阈值自定义**：设置页新增“新增字数阈值”和“新增笔记篇数阈值”，用户可以按自己的写作量调整三档颜色深浅，不再只能使用固定默认值。
+- **本月统计汇总**：日历下方新增本月统计，显示当前月份新增了多少篇笔记、多少字。
+
+#### 修复
+
+- **修复日期首次点击不跳转的问题**：修复了 Obsidian 侧边栏激活逻辑可能吞掉第一次点击，导致需要点第二次日期才会打开每日笔记的问题。
+- **修复市场元数据警告**：更新插件描述，避免 description 以插件名称开头，解决 Obsidian 市场提示。
+
+#### 优化
+
+- **优化日历顶部对齐**：调整月份标题和左右导航的位置，让“本月”和箭头视觉上居中，并让右箭头与日历方格右边线对齐。
+
 ## 1.7.1 (2026-06-05)
 
 ### English Release Notes
