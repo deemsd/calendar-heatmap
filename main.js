@@ -1149,28 +1149,7 @@ function getCustomDailyNotesByDate(date, dailyNotes) {
     const dateUID = date.format("YYYY-MM-DD");
     return dailyNotes[dateUID] || null;
 }
-async function generateCalendarIndex() {
-    const { vault } = window.app;
-    const currentSettings = get_store_value(settings);
-    // 获取检索文件夹路径
-    let folderPath = currentSettings.customDailyNoteFolder;
-    if (!folderPath) {
-        const { folder } = getDailyNoteSettings_1();
-        folderPath = folder || "";
-    }
-    try {
-        const existingFile = vault.getAbstractFileByPath(calendarFilePath);
-        if (existingFile instanceof obsidian.TFile) {
-            await vault.modify(existingFile, content);
-        }
-        else {
-            await vault.create(calendarFilePath, content);
-        }
-    }
-    catch (error) {
-        console.error("Failed to create/update Calendar.md:", error);
-    }
-}
+async function generateCalendarIndex() { return; }
 function generateCalendarContent(dailyNotes) {
     const sortedDates = Object.keys(dailyNotes).sort();
     let content = `This document provides a chronological overview of all daily notes, organized by year and month in reverse chronological order.\n\n`;
@@ -2341,6 +2320,12 @@ function isMetaPressed(e) {
     return isMacOS() ? e.metaKey : e.ctrlKey;
 }
 function getDaysOfWeek(..._args) {
+    const locale = window.moment.locale();
+    if (locale === 'zh-cn' || locale === 'zh') {
+        const weekStart = window.moment.localeData().firstDayOfWeek();
+        const days = ['周日', '周一', '周二', '周三', '周四', '周五', '周六'];
+        return [...days.slice(weekStart), ...days.slice(0, weekStart)];
+    }
     return window.moment.weekdaysShort(true);
 }
 function isWeekend(date) {
