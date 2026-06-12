@@ -2,7 +2,7 @@
   "id": "calendar-heatmap",
   "name": "Calendar Heatmap",
   "description": "Visualize daily note creation and writing activity as a sidebar heatmap.",
-  "version": "1.8.0",
+  "version": "1.8.1",
   "author": "zen",
   "authorUrl": "https://github.com/deemsd/",
   "fundingUrl": "",
