@@ -6,12 +6,12 @@ function _interopDefaultLegacy (e) { return e && typeof e === 'object' && 'defau
 
 var obsidian__default = /*#__PURE__*/_interopDefaultLegacy(obsidian);
 
-const DEFAULT_WEEK_FORMAT = "gggg-[W]ww";
+const DEFAULT_WEEK_FORMAT = "YYYY-[W]MM-DD";
 const VIEW_TYPE_CALENDAR = "calendar-heatmap";
 const TRIGGER_ON_OPEN = "calendar-heatmap:open";
 
 const DEFAULT_DAILY_NOTE_FORMAT = "YYYY-MM-DD";
-const DEFAULT_WEEKLY_NOTE_FORMAT = "gggg-[W]ww";
+const DEFAULT_WEEKLY_NOTE_FORMAT = "YYYY-[W]MM-DD";
 const DEFAULT_MONTHLY_NOTE_FORMAT = "YYYY-MM";
 
 function shouldUsePeriodicNotesSettings(periodicity) {
@@ -175,8 +175,21 @@ async function ensureFolderExists(path) {
     dirs.pop(); // remove basename
     if (dirs.length) {
         const dir = join(...dirs);
-        if (!window.app.vault.getAbstractFileByPath(dir)) {
-            await window.app.vault.createFolder(dir);
+        await ensureFolderPathExists(dir);
+    }
+}
+async function ensureFolderPathExists(folderPath) {
+    const normalizedPath = obsidian__default['default'].normalizePath(folderPath || "");
+    if (!normalizedPath || normalizedPath === "/") {
+        return;
+    }
+    const segments = normalizedPath.split("/").filter(Boolean);
+    let currentPath = "";
+    for (const segment of segments) {
+        currentPath = currentPath ? `${currentPath}/${segment}` : segment;
+        const existing = window.app.vault.getAbstractFileByPath(currentPath);
+        if (!existing) {
+            await window.app.vault.createFolder(currentPath);
         }
     }
 }
@@ -207,6 +220,49 @@ async function getTemplateInfo(template) {
         return ["", null];
     }
 }
+function normalizeVaultFolderPath(folderPath = "") {
+    const normalizedPath = obsidian__default['default'].normalizePath(folderPath || "");
+    return normalizedPath === "/" ? "" : normalizedPath.replace(/^\/+|\/+$/g, "");
+}
+function getDailyNoteBaseFolder(fallbackFolder = "") {
+    const currentSettings = get_store_value(settings);
+    const folderPath = currentSettings.customDailyNoteFolder || fallbackFolder || "";
+    return normalizeVaultFolderPath(folderPath);
+}
+function getYearFolderForDate(baseFolder, date) {
+    const year = date.format("YYYY");
+    const plainYearFolder = obsidian__default['default'].normalizePath(join(baseFolder, year));
+    const chineseYearFolder = obsidian__default['default'].normalizePath(join(baseFolder, `${year}年`));
+    if (window.app.vault.getAbstractFileByPath(plainYearFolder)) {
+        return plainYearFolder;
+    }
+    if (window.app.vault.getAbstractFileByPath(chineseYearFolder)) {
+        return chineseYearFolder;
+    }
+    return plainYearFolder;
+}
+function getMonthlyPeriodicNoteFolderForDate(date, baseFolder) {
+    const yearFolder = getYearFolderForDate(baseFolder, date);
+    return obsidian__default['default'].normalizePath(join(yearFolder, date.format("YYYY-MM")));
+}
+function getDailyNoteFolderForDate(date, fallbackFolder = "") {
+    const baseFolder = getDailyNoteBaseFolder(fallbackFolder);
+    if (get_store_value(settings).useMonthlyDailyNoteFolders === true) {
+        return getMonthlyPeriodicNoteFolderForDate(date, baseFolder);
+    }
+    return baseFolder;
+}
+function getWeeklyNoteBaseFolder(fallbackFolder = "") {
+    const folderPath = fallbackFolder || "";
+    return normalizeVaultFolderPath(folderPath);
+}
+function getWeeklyNoteFolderForDate(date, fallbackFolder = "") {
+    const baseFolder = getWeeklyNoteBaseFolder(fallbackFolder);
+    if (get_store_value(settings).useMonthlyDailyNoteFolders === true) {
+        return getMonthlyPeriodicNoteFolderForDate(date, baseFolder);
+    }
+    return baseFolder;
+}
 /**
  * This function mimics the behavior of the daily-notes plugin
  * so it will replace {{date}}, {{title}}, and {{time}} with the
@@ -221,7 +277,7 @@ async function createDailyNote(date) {
     const { template, format, folder } = getDailyNoteSettings();
     const [templateContents, IFoldInfo] = await getTemplateInfo(template);
     const filename = date.format(format);
-    const normalizedPath = await getNotePath(folder, filename);
+    const normalizedPath = await getNotePath(getDailyNoteFolderForDate(date, folder), filename);
     try {
         const createdFile = await vault.create(normalizedPath, templateContents
             .replace(/{{\s*date\s*}}/gi, filename)
@@ -283,7 +339,7 @@ async function createWeeklyNote(date) {
     const { template, format, folder } = getWeeklyNoteSettings();
     const [templateContents, IFoldInfo] = await getTemplateInfo(template);
     const filename = date.format(format);
-    const normalizedPath = await getNotePath(folder, filename);
+    const normalizedPath = await getNotePath(getWeeklyNoteFolderForDate(date, folder), filename);
     try {
         const createdFile = await vault.create(normalizedPath, templateContents
             .replace(/{{\s*(date|time)\s*(([+-]\d+)([yqmwdhs]))?\s*(:.+?)?}}/gi, (_, _timeOrDate, calc, timeDelta, unit, momentFormat) => {
@@ -322,7 +378,8 @@ function getWeeklyNote(date, weeklyNotes) {
 function getAllWeeklyNotes() {
     const { vault } = window.app;
     const { folder } = getWeeklyNoteSettings();
-    const weeklyNotesFolder = vault.getAbstractFileByPath(obsidian__default['default'].normalizePath(folder));
+    const weeklyNotesFolderPath = getWeeklyNoteBaseFolder(folder);
+    const weeklyNotesFolder = weeklyNotesFolderPath ? vault.getAbstractFileByPath(weeklyNotesFolderPath) : vault.getRoot();
     if (!weeklyNotesFolder) {
         throw new WeeklyNotesFolderMissingError("Failed to find weekly notes folder");
     }
@@ -762,6 +819,7 @@ const defaultSettings = Object.freeze({
     shouldConfirmBeforeCreate: true,
     weekStart: "locale",
     customDailyNoteFolder: "/",
+    useMonthlyDailyNoteFolders: false,
     heatmapMetric: "words",
     includeDailyNotesInHeatmap: true,
     heatmapWordThresholds: defaultHeatmapWordThresholds,
@@ -818,6 +876,7 @@ class CalendarSettingsTab extends obsidian.PluginSettingTab {
         this.addConfirmCreateSetting();
         this.addShowWeeklyNoteSetting();
         this.addCustomDailyNoteFolderSetting();
+        this.addMonthlyDailyNoteFoldersSetting();
         this.addFontSizeSetting();
         if (this.plugin.options.showWeeklyNote &&
             !appHasPeriodicNotesPluginLoaded()) {
@@ -1020,16 +1079,27 @@ class CalendarSettingsTab extends obsidian.PluginSettingTab {
                 .setButtonText("创建文件夹")
                 .setTooltip("如果文件夹不存在，则创建它")
                 .onClick(async () => {
-                const folderPath = this.plugin.options.customDailyNoteFolder;
+                const folderPath = normalizeVaultFolderPath(this.plugin.options.customDailyNoteFolder);
                 if (folderPath && !this.app.vault.getAbstractFileByPath(folderPath)) {
                     try {
-                        await this.app.vault.createFolder(folderPath);
+                        await ensureFolderPathExists(folderPath);
                         new obsidian.Notice(`已创建文件夹：${folderPath}`);
                     }
                     catch (error) {
                         new obsidian.Notice(`创建文件夹失败：${error.message}`);
                     }
                 }
+            });
+        });
+    }
+    addMonthlyDailyNoteFoldersSetting() {
+        new obsidian.Setting(this.containerEl)
+            .setName("按月份保存每日笔记和周记")
+            .setDesc("开启后，新建每日笔记和周记会自动放入“年份/月份”子文件夹，例如 2026/2026-06；年份文件夹可识别 2026 或 2026年。")
+            .addToggle((toggle) => {
+            toggle.setValue(this.plugin.options.useMonthlyDailyNoteFolders === true);
+            toggle.onChange(async (value) => {
+                await this.plugin.writeOptions(() => ({ useMonthlyDailyNoteFolders: value }));
             });
         });
     }
@@ -1117,20 +1187,15 @@ function getWordCount(text) {
 }
 function getCustomDailyNotes() {
     const { vault } = window.app;
-    const currentSettings = get_store_value(settings);
-    // 优先使用自定义设置，否则使用默认设置
-    let folderPath = currentSettings.customDailyNoteFolder;
-    if (!folderPath) {
-        const { folder } = getDailyNoteSettings_1();
-        folderPath = folder || "";
-    }
+    const { folder } = getDailyNoteSettings_1();
+    const folderPath = getDailyNoteBaseFolder(folder);
     const dailyNotes = {};
-    const abstractFile = vault.getAbstractFileByPath(folderPath);
-    if (!abstractFile || !(abstractFile instanceof obsidian.TFolder)) {
+    const abstractFile = folderPath ? vault.getAbstractFileByPath(folderPath) : null;
+    if (folderPath && (!abstractFile || !(abstractFile instanceof obsidian.TFolder))) {
         return dailyNotes;
     }
     vault.getMarkdownFiles().forEach((file) => {
-        if (!file.path.startsWith(folderPath)) {
+        if (folderPath && file.path !== folderPath && !file.path.startsWith(`${folderPath}/`)) {
             return;
         }
         const dateMatch = file.basename.match(/^(\d{4}-\d{2}-\d{2})/);
@@ -4371,13 +4436,8 @@ function invalidateCreatedNotesHeatmap() {
     createdNotesHeatmapFileStats.clear();
 }
 function getHeatmapDailyNoteFolderPath() {
-    const currentSettings = get_store_value(settings);
-    let folderPath = currentSettings.customDailyNoteFolder;
-    if (!folderPath) {
-        const { folder } = getDailyNoteSettings_1();
-        folderPath = folder || "";
-    }
-    return obsidian__default['default'].normalizePath(folderPath || "");
+    const { folder } = getDailyNoteSettings_1();
+    return getDailyNoteBaseFolder(folder);
 }
 function isHeatmapDailyNote(file) {
     const dateMatch = file.basename.match(/^(\d{4}-\d{2}-\d{2})/);
@@ -4582,8 +4642,16 @@ class CalendarView extends obsidian.ItemView {
         this.registerEvent(this.app.workspace.on("file-open", this.onFileOpen));
         this.settings = null;
         settings.subscribe((val) => {
+            const previousSettings = this.settings;
             this.settings = val;
             invalidateCreatedNotesHeatmap();
+            if (previousSettings &&
+                (previousSettings.customDailyNoteFolder !== val.customDailyNoteFolder ||
+                    previousSettings.useMonthlyDailyNoteFolders !== val.useMonthlyDailyNoteFolders)) {
+                dailyNotes.reindex();
+                weeklyNotes.reindex();
+                this.updateActiveFile();
+            }
             // Refresh the calendar if settings change
             if (this.calendar) {
                 this.calendar.tick();
@@ -4885,6 +4953,9 @@ class CalendarPlugin extends obsidian.Plugin {
     }
     async loadOptions() {
         const options = await this.loadData();
+        if ((options === null || options === void 0 ? void 0 : options.weeklyNoteFormat) === "gggg-[W]ww") {
+            options.weeklyNoteFormat = DEFAULT_WEEKLY_NOTE_FORMAT;
+        }
         settings.update((old) => {
             return Object.assign(Object.assign({}, old), (options || {}));
         });
@@ -4897,5 +4968,7 @@ class CalendarPlugin extends obsidian.Plugin {
 }
 
 module.exports = CalendarPlugin;
+
+/* nosourcemap */
 
 /* nosourcemap */

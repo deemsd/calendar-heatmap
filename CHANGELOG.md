@@ -1,5 +1,23 @@
 # Changelog
 
+## 1.8.2 (2026-06-18)
+
+### English Release Notes
+
+#### Improvements
+
+- **Year/month note folders**: Updated the monthly note-folder rule so daily notes and weekly notes are created under `year/month` folders, for example `2026/2026-06`, instead of placing month folders directly under the base note folder.
+- **Flexible year folder names**: The plugin now detects existing year folders named either `2026` or `2026年`. If neither exists, it creates the plain `2026` folder.
+- **Weekly note folder support**: Weekly notes now follow the same monthly folder rule as daily notes when the monthly organization setting is enabled.
+
+### 中文发布说明
+
+#### 优化
+
+- **按年份/月归档笔记**：调整按月份保存规则，每日笔记和周记现在会创建到 `年份/月份` 目录下，例如 `2026/2026-06`，不再直接放到基础目录下的 `2026-06`。
+- **兼容年份文件夹名称**：插件会识别已有的 `2026` 或 `2026年` 年份文件夹；如果都不存在，默认创建 `2026`。
+- **周记同步归档**：开启按月份保存后，周记会和每日笔记一样自动归入对应年份和月份目录。
+
 ## 1.8.0 (2026-06-06)
 
 ### English Release Notes
