@@ -27,19 +27,20 @@ function getDailyNoteSettings() {
     try {
         // eslint-disable-next-line @typescript-eslint/no-explicit-any
         const { internalPlugins, plugins } = window.app;
+        const calendarSettings = plugins.getPlugin("calendar-heatmap")?.options || {};
+        let fallbackSettings = {};
         if (shouldUsePeriodicNotesSettings("daily")) {
             const { format, folder, template } = plugins.getPlugin("periodic-notes")?.settings?.daily || {};
-            return {
-                format: format || DEFAULT_DAILY_NOTE_FORMAT,
-                folder: folder?.trim() || "",
-                template: template?.trim() || "",
-            };
+            fallbackSettings = { format, folder, template };
         }
-        const { folder, format, template } = internalPlugins.getPluginById("daily-notes")?.instance?.options || {};
+        else {
+            const { folder, format, template } = internalPlugins.getPluginById("daily-notes")?.instance?.options || {};
+            fallbackSettings = { format, folder, template };
+        }
         return {
-            format: format || DEFAULT_DAILY_NOTE_FORMAT,
-            folder: folder?.trim() || "",
-            template: template?.trim() || "",
+            format: calendarSettings.dailyNoteFormat || fallbackSettings.format || DEFAULT_DAILY_NOTE_FORMAT,
+            folder: getConfiguredDailyNoteFolder(calendarSettings, fallbackSettings.folder?.trim() || ""),
+            template: calendarSettings.dailyNoteTemplate || fallbackSettings.template?.trim() || "",
         };
     }
     catch (err) {
@@ -224,10 +225,22 @@ function normalizeVaultFolderPath(folderPath = "") {
     const normalizedPath = obsidian__default['default'].normalizePath(folderPath || "");
     return normalizedPath === "/" ? "" : normalizedPath.replace(/^\/+|\/+$/g, "");
 }
+function stripTrailingYearFolder(folderPath = "") {
+    const normalizedPath = normalizeVaultFolderPath(folderPath);
+    return normalizedPath.replace(/\/\d{4}年?$/, "");
+}
+function getConfiguredDailyNoteFolder(options = {}, fallbackFolder = "") {
+    if (options.dailyNoteFolder) {
+        return normalizeVaultFolderPath(options.dailyNoteFolder);
+    }
+    if (options.customDailyNoteFolder) {
+        return stripTrailingYearFolder(options.customDailyNoteFolder);
+    }
+    return normalizeVaultFolderPath(fallbackFolder);
+}
 function getDailyNoteBaseFolder(fallbackFolder = "") {
     const currentSettings = get_store_value(settings);
-    const folderPath = currentSettings.customDailyNoteFolder || fallbackFolder || "";
-    return normalizeVaultFolderPath(folderPath);
+    return getConfiguredDailyNoteFolder(currentSettings, fallbackFolder);
 }
 function getYearFolderForDate(baseFolder, date) {
     const year = date.format("YYYY");
@@ -819,6 +832,9 @@ const defaultSettings = Object.freeze({
     shouldConfirmBeforeCreate: true,
     weekStart: "locale",
     customDailyNoteFolder: "/",
+    dailyNoteFormat: "",
+    dailyNoteTemplate: "",
+    dailyNoteFolder: "",
     useMonthlyDailyNoteFolders: false,
     heatmapMetric: "words",
     includeDailyNotesInHeatmap: true,
@@ -875,7 +891,12 @@ class CalendarSettingsTab extends obsidian.PluginSettingTab {
         this.addWeekStartSetting();
         this.addConfirmCreateSetting();
         this.addShowWeeklyNoteSetting();
-        this.addCustomDailyNoteFolderSetting();
+        this.containerEl.createEl("h3", {
+            text: "日记设置"
+        });
+        this.addDailyNoteFormatSetting();
+        this.addDailyNoteTemplateSetting();
+        this.addDailyNoteFolderSetting();
         this.addMonthlyDailyNoteFoldersSetting();
         this.addFontSizeSetting();
         if (this.plugin.options.showWeeklyNote &&
@@ -1062,16 +1083,39 @@ class CalendarSettingsTab extends obsidian.PluginSettingTab {
             });
         });
     }
-    addCustomDailyNoteFolderSetting() {
+    addDailyNoteFormatSetting() {
         new obsidian.Setting(this.containerEl)
-            .setName("每日笔记文件夹")
-            .setDesc("覆盖默认每日笔记文件夹。留空则使用 Daily Notes 插件的设置。")
+            .setName("日记文件名格式")
+            .setDesc("设置新建日记使用的日期格式。留空则使用 Daily Notes 或 Periodic Notes 插件的设置。")
             .addText((textfield) => {
-            textfield.setValue(this.plugin.options.customDailyNoteFolder);
+            textfield.setValue(this.plugin.options.dailyNoteFormat || "");
+            textfield.setPlaceholder(DEFAULT_DAILY_NOTE_FORMAT);
+            textfield.onChange(async (value) => {
+                await this.plugin.writeOptions(() => ({ dailyNoteFormat: value.trim() }));
+            });
+        });
+    }
+    addDailyNoteTemplateSetting() {
+        new obsidian.Setting(this.containerEl)
+            .setName("日记模板")
+            .setDesc("选择创建日记时使用的模板文件。留空则使用 Daily Notes 或 Periodic Notes 插件的设置。")
+            .addText((textfield) => {
+            textfield.setValue(this.plugin.options.dailyNoteTemplate || "");
+            textfield.onChange(async (value) => {
+                await this.plugin.writeOptions(() => ({ dailyNoteTemplate: value.trim() }));
+            });
+        });
+    }
+    addDailyNoteFolderSetting() {
+        new obsidian.Setting(this.containerEl)
+            .setName("日记文件夹")
+            .setDesc("新建日记的基础文件夹。开启按月份保存后，会自动放入 年份/月份 子文件夹。")
+            .addText((textfield) => {
+            textfield.setValue(this.plugin.options.dailyNoteFolder || stripTrailingYearFolder(this.plugin.options.customDailyNoteFolder || ""));
             textfield.setPlaceholder("/");
             new FolderSuggest(this.app, textfield.inputEl);
             textfield.onChange(async (value) => {
-                await this.plugin.writeOptions(() => ({ customDailyNoteFolder: value }));
+                await this.plugin.writeOptions(() => ({ dailyNoteFolder: value.trim() }));
             });
         })
             .addButton((button) => {
@@ -1079,7 +1123,7 @@ class CalendarSettingsTab extends obsidian.PluginSettingTab {
                 .setButtonText("创建文件夹")
                 .setTooltip("如果文件夹不存在，则创建它")
                 .onClick(async () => {
-                const folderPath = normalizeVaultFolderPath(this.plugin.options.customDailyNoteFolder);
+                const folderPath = normalizeVaultFolderPath(this.plugin.options.dailyNoteFolder || stripTrailingYearFolder(this.plugin.options.customDailyNoteFolder || ""));
                 if (folderPath && !this.app.vault.getAbstractFileByPath(folderPath)) {
                     try {
                         await ensureFolderPathExists(folderPath);
@@ -2428,8 +2472,8 @@ function getMonth(displayedMonth, ..._args) {
 
 function add_css$4() {
 	var style = element("style");
-	style.id = "svelte-q3wqg9-heatmap-style-v7";
-	style.textContent = ".day.svelte-q3wqg9{align-items:center!important;aspect-ratio:1/1!important;background-color:var(--color-background-day);border-radius:5px;box-sizing:border-box!important;color:var(--color-text-day);cursor:pointer;display:flex!important;flex-direction:column;font-size:0.68em;height:23px!important;justify-content:center!important;min-height:23px!important;max-height:23px!important;overflow:visible;padding:0!important;position:relative;text-align:center;transition:background-color 0.12s ease-in,color 0.12s ease-in,box-shadow 0.12s ease-in;vertical-align:baseline;width:23px!important;min-width:23px!important;max-width:23px!important}.container.is-mobile.svelte-pcimu8 .day.svelte-q3wqg9{border-radius:6px;font-size:0.72em;height:var(--heatmap-cell-mobile)!important;min-height:var(--heatmap-cell-mobile)!important;max-height:var(--heatmap-cell-mobile)!important;width:var(--heatmap-cell-mobile)!important;min-width:var(--heatmap-cell-mobile)!important;max-width:var(--heatmap-cell-mobile)!important}.day.svelte-q3wqg9:hover{box-shadow:inset 0 0 0 1px rgba(79,195,138,.45)}.day[data-heatmap-tooltip].svelte-q3wqg9:hover::after{background:rgba(0,0,0,.86);border-radius:5px;bottom:calc(100% + 6px);color:#fff;content:attr(data-heatmap-tooltip);font-size:11px;left:50%;line-height:1.35;padding:4px 8px;pointer-events:none;position:absolute;transform:translateX(-50%);white-space:nowrap;z-index:9999}.day[data-heatmap-tooltip].svelte-q3wqg9:hover::before{border:5px solid transparent;border-top-color:rgba(0,0,0,.86);bottom:calc(100% - 4px);content:\"\";left:50%;pointer-events:none;position:absolute;transform:translateX(-50%);z-index:9999}.adjacent-month.svelte-q3wqg9{opacity:0.25}.today.svelte-q3wqg9{color:var(--interactive-accent);font-weight:700}.day.heatmap-level-0.svelte-q3wqg9{background-color:rgba(127,127,127,.12)}.day.heatmap-level-1.svelte-q3wqg9{background-color:rgba(79,195,138,.18)}.day.heatmap-level-2.svelte-q3wqg9{background-color:rgba(79,195,138,.34)}.day.heatmap-level-3.svelte-q3wqg9{background-color:rgba(79,195,138,.52)}.day.heatmap-level-4.svelte-q3wqg9{background-color:rgba(79,195,138,.72)}.day.svelte-q3wqg9:active,.day.active.svelte-q3wqg9,.active.today.svelte-q3wqg9{color:var(--text-on-accent);background-color:var(--interactive-accent);box-shadow:inset 0 0 0 2px var(--interactive-accent-hover)}.dot-container.svelte-q3wqg9{bottom:-7px;display:flex!important;flex-wrap:nowrap;justify-content:center;left:0;line-height:5px;min-height:5px;pointer-events:none;position:absolute;right:0}.dot-container.svelte-q3wqg9 .dot,.dot-container.svelte-q3wqg9 .hollow{height:5px;margin:0;width:5px}";
+	style.id = "svelte-q3wqg9-heatmap-style-v8";
+	style.textContent = ".day.svelte-q3wqg9{align-items:center!important;aspect-ratio:1/1!important;background-color:var(--color-background-day);border-radius:var(--heatmap-day-radius,5px);box-sizing:border-box!important;color:var(--color-text-day);cursor:pointer;display:flex!important;flex-direction:column;font-size:var(--heatmap-day-font-size,0.68em);height:var(--heatmap-day-size,23px)!important;justify-content:center!important;min-height:var(--heatmap-day-size,23px)!important;max-height:var(--heatmap-day-size,23px)!important;overflow:visible;padding:0!important;position:relative;text-align:center;transition:background-color 0.12s ease-in,color 0.12s ease-in,box-shadow 0.12s ease-in;vertical-align:baseline;width:var(--heatmap-day-size,23px)!important;min-width:var(--heatmap-day-size,23px)!important;max-width:var(--heatmap-day-size,23px)!important}.container.is-mobile.svelte-pcimu8 .day.svelte-q3wqg9{border-radius:var(--heatmap-day-mobile-radius,6px);font-size:var(--heatmap-day-mobile-font-size,0.72em);height:var(--heatmap-cell-mobile)!important;min-height:var(--heatmap-cell-mobile)!important;max-height:var(--heatmap-cell-mobile)!important;width:var(--heatmap-cell-mobile)!important;min-width:var(--heatmap-cell-mobile)!important;max-width:var(--heatmap-cell-mobile)!important}.day.svelte-q3wqg9:hover{box-shadow:inset 0 0 0 1px var(--heatmap-hover-outline,rgba(79,195,138,.45))}.day[data-heatmap-tooltip].svelte-q3wqg9:hover::after{background:rgba(0,0,0,.86);border-radius:var(--heatmap-day-radius,5px);bottom:calc(100% + 6px);color:#fff;content:attr(data-heatmap-tooltip);font-size:11px;left:50%;line-height:1.35;padding:4px 8px;pointer-events:none;position:absolute;transform:translateX(-50%);white-space:nowrap;z-index:9999}.day[data-heatmap-tooltip].svelte-q3wqg9:hover::before{border:5px solid transparent;border-top-color:rgba(0,0,0,.86);bottom:calc(100% - 4px);content:\"\";left:50%;pointer-events:none;position:absolute;transform:translateX(-50%);z-index:9999}.adjacent-month.svelte-q3wqg9{opacity:0.25}.today.svelte-q3wqg9{color:var(--interactive-accent);font-weight:700}.day.heatmap-level-0.svelte-q3wqg9{background-color:var(--heatmap-level-0-color,rgba(127,127,127,.12))}.day.heatmap-level-1.svelte-q3wqg9{background-color:var(--heatmap-level-1-color,rgba(79,195,138,.18))}.day.heatmap-level-2.svelte-q3wqg9{background-color:var(--heatmap-level-2-color,rgba(79,195,138,.34))}.day.heatmap-level-3.svelte-q3wqg9{background-color:var(--heatmap-level-3-color,rgba(79,195,138,.52))}.day.heatmap-level-4.svelte-q3wqg9{background-color:var(--heatmap-level-4-color,rgba(79,195,138,.72))}.day.svelte-q3wqg9:active,.day.active.svelte-q3wqg9,.active.today.svelte-q3wqg9{color:var(--text-on-accent);background-color:var(--interactive-accent);box-shadow:inset 0 0 0 2px var(--interactive-accent-hover)}.dot-container.svelte-q3wqg9{bottom:var(--heatmap-dot-offset,-7px);display:flex!important;flex-wrap:nowrap;justify-content:center;left:0;line-height:5px;min-height:5px;pointer-events:none;position:absolute;right:0}.dot-container.svelte-q3wqg9 .dot,.dot-container.svelte-q3wqg9 .hollow{height:var(--heatmap-dot-size,5px);margin:0;width:var(--heatmap-dot-size,5px)}";
 	style.textContent += ".dot-container.svelte-q3wqg9{display:none!important}";
 	append(document.head, style);
 }
@@ -2738,7 +2782,7 @@ function instance$4($$self, $$props, $$invalidate) {
 class Day extends SvelteComponent {
 	constructor(options) {
 		super();
-		if (!document.getElementById("svelte-q3wqg9-heatmap-style-v7")) add_css$4();
+		if (!document.getElementById("svelte-q3wqg9-heatmap-style-v8")) add_css$4();
 
 		init(this, options, instance$4, create_fragment$4, not_equal, {
 			date: 0,
@@ -2757,8 +2801,8 @@ class Day extends SvelteComponent {
 
 function add_css$3() {
 	var style = element("style");
-	style.id = "svelte-156w7na-style";
-	style.textContent = ".arrow.svelte-156w7na.svelte-156w7na{align-items:center;cursor:pointer;display:flex;justify-content:center;width:18px}.arrow.is-mobile.svelte-156w7na.svelte-156w7na{width:32px}.right.svelte-156w7na.svelte-156w7na{transform:rotate(180deg)}.arrow.svelte-156w7na svg.svelte-156w7na{color:var(--color-arrow);height:16px;width:16px}";
+	style.id = "svelte-156w7na-style-custom-v2";
+	style.textContent = ".arrow.svelte-156w7na.svelte-156w7na{align-items:center;cursor:pointer;display:flex;justify-content:center;width:var(--heatmap-arrow-button-width,18px)}.arrow.is-mobile.svelte-156w7na.svelte-156w7na{width:32px}.right.svelte-156w7na.svelte-156w7na{transform:rotate(180deg)}.arrow.svelte-156w7na svg.svelte-156w7na{color:var(--color-arrow);height:var(--heatmap-arrow-icon-size,16px);width:var(--heatmap-arrow-icon-size,16px)}";
 	append(document.head, style);
 }
 
@@ -2840,7 +2884,7 @@ function instance$3($$self, $$props, $$invalidate) {
 class Arrow extends SvelteComponent {
 	constructor(options) {
 		super();
-		if (!document.getElementById("svelte-156w7na-style")) add_css$3();
+		if (!document.getElementById("svelte-156w7na-style-custom-v2")) add_css$3();
 		init(this, options, instance$3, create_fragment$3, safe_not_equal, { onClick: 0, tooltip: 1, direction: 2 });
 	}
 }
@@ -2849,8 +2893,8 @@ class Arrow extends SvelteComponent {
 
 function add_css$2() {
 	var style = element("style");
-	style.id = "svelte-1vwr9dd-style-custom-v6";
-	style.textContent = ".nav.svelte-1vwr9dd.svelte-1vwr9dd{align-items:center;display:block;height:1.35em;margin:0.55em 0 0.55em;padding:0;position:relative;transform:none;width:var(--heatmap-nav-width,220px)}.nav.is-mobile.svelte-1vwr9dd.svelte-1vwr9dd{padding:0;width:var(--heatmap-mobile-nav-width,278px)}.title.svelte-1vwr9dd.svelte-1vwr9dd{color:var(--color-text-title);font-size:1.08em;left:11px;line-height:1;margin:0;position:absolute;top:50%;transform:translateY(-50%)}.is-mobile.svelte-1vwr9dd .title.svelte-1vwr9dd{font-size:1.02em}.month.svelte-1vwr9dd.svelte-1vwr9dd{font-weight:600;text-transform:none}.year.svelte-1vwr9dd.svelte-1vwr9dd{display:none}.right-nav.svelte-1vwr9dd.svelte-1vwr9dd{align-items:center;display:flex;justify-content:center;left:auto;margin-left:0;position:absolute;right:0;top:50%;transform:translateY(-50%);width:60px}.nav.is-mobile.svelte-1vwr9dd .right-nav.svelte-1vwr9dd{left:auto;right:8px;width:92px}.reset-button.svelte-1vwr9dd.svelte-1vwr9dd{align-items:center;cursor:pointer;border-radius:4px;color:var(--text-muted);display:flex;font-size:0.68em;font-weight:600;justify-content:center;letter-spacing:0;line-height:1;margin:0;width:24px;min-width:24px;padding:0;text-transform:uppercase;white-space:nowrap}.is-mobile.svelte-1vwr9dd .reset-button.svelte-1vwr9dd{display:none}";
+	style.id = "svelte-1vwr9dd-style-custom-v7";
+	style.textContent = ".nav.svelte-1vwr9dd.svelte-1vwr9dd{align-items:center;display:block;height:var(--heatmap-nav-height,1.35em);margin:var(--heatmap-nav-margin,0.55em 0 0.55em);padding:0;position:relative;transform:none;width:var(--heatmap-nav-width,220px)}.nav.is-mobile.svelte-1vwr9dd.svelte-1vwr9dd{padding:0;width:var(--heatmap-mobile-nav-width,278px)}.title.svelte-1vwr9dd.svelte-1vwr9dd{color:var(--color-text-title);font-size:var(--heatmap-title-font-size,1.08em);left:var(--heatmap-title-left,11px);line-height:1;margin:0;position:absolute;top:50%;transform:translateY(-50%)}.is-mobile.svelte-1vwr9dd .title.svelte-1vwr9dd{font-size:1.02em}.month.svelte-1vwr9dd.svelte-1vwr9dd{font-weight:600;text-transform:none}.year.svelte-1vwr9dd.svelte-1vwr9dd{display:none}.right-nav.svelte-1vwr9dd.svelte-1vwr9dd{align-items:center;display:flex;justify-content:center;left:auto;margin-left:0;position:absolute;right:0;top:50%;transform:translateY(-50%);width:var(--heatmap-right-nav-width,60px)}.nav.is-mobile.svelte-1vwr9dd .right-nav.svelte-1vwr9dd{left:auto;right:var(--heatmap-mobile-right-nav-right,8px);width:var(--heatmap-mobile-right-nav-width,92px)}.reset-button.svelte-1vwr9dd.svelte-1vwr9dd{align-items:center;cursor:pointer;border-radius:4px;color:var(--text-muted);display:flex;font-size:var(--heatmap-reset-font-size,0.68em);font-weight:600;justify-content:center;letter-spacing:0;line-height:1;margin:0;width:var(--heatmap-reset-width,24px);min-width:var(--heatmap-reset-width,24px);padding:0;text-transform:uppercase;white-space:nowrap}.is-mobile.svelte-1vwr9dd .reset-button.svelte-1vwr9dd{display:none}";
 	append(document.head, style);
 }
 
@@ -3013,7 +3057,7 @@ function instance$2($$self, $$props, $$invalidate) {
 class Nav extends SvelteComponent {
 	constructor(options) {
 		super();
-		if (!document.getElementById("svelte-1vwr9dd-style-custom-v6")) add_css$2();
+		if (!document.getElementById("svelte-1vwr9dd-style-custom-v7")) add_css$2();
 
 		init(this, options, instance$2, create_fragment$2, safe_not_equal, {
 			displayedMonth: 0,
@@ -3356,8 +3400,8 @@ function getWeeklyMetadata(sources, date, ..._args) {
 
 function add_css$6() {
 	var style = element("style");
-	style.id = "svelte-pcimu8-heatmap-style-v8";
-	style.textContent = ".container.svelte-pcimu8{--color-background-heading:transparent;--color-background-day:transparent;--color-background-weeknum:transparent;--color-background-weekend:transparent;--color-dot:var(--text-muted);--color-arrow:var(--text-muted);--color-button:var(--text-muted);--color-text-title:var(--text-normal);--color-text-heading:var(--text-muted);--color-text-day:var(--text-normal);--color-text-today:var(--interactive-accent);--color-text-weeknum:var(--text-muted);--heatmap-cell-gap:3.8px;--heatmap-nav-width:187px}.container.svelte-pcimu8:has(.week-num){--heatmap-nav-width:215px}.container.svelte-pcimu8{padding:0;transform:translateX(-18px)}.container.is-mobile.svelte-pcimu8{--heatmap-cell-gap:clamp(4px,1.15vw,5px);--heatmap-cell-mobile:clamp(28px,7.6vw,33px);--heatmap-mobile-nav-width:clamp(278px,78vw,312px);margin:0 auto;max-width:100%;padding:0;transform:translateX(-6px);width:max-content}th.svelte-pcimu8{text-align:center}.weekend.svelte-pcimu8{background-color:var(--color-background-weekend)}.calendar.svelte-pcimu8{border-collapse:separate!important;border-spacing:var(--heatmap-cell-gap)!important;margin:0!important;table-layout:auto!important;width:auto!important}.calendar.svelte-pcimu8 td{height:23px!important;max-width:23px!important;min-width:23px!important;padding:0!important;text-align:center;vertical-align:middle;width:23px!important}.calendar.svelte-pcimu8 th{max-width:23px!important;min-width:23px!important;overflow:hidden;padding:2px 0!important;text-align:center;width:23px!important}.container.is-mobile.svelte-pcimu8 .calendar.svelte-pcimu8 td{height:var(--heatmap-cell-mobile)!important;max-width:var(--heatmap-cell-mobile)!important;min-width:var(--heatmap-cell-mobile)!important;width:var(--heatmap-cell-mobile)!important}.container.is-mobile.svelte-pcimu8 .calendar.svelte-pcimu8 th{max-width:var(--heatmap-cell-mobile)!important;min-width:var(--heatmap-cell-mobile)!important;width:var(--heatmap-cell-mobile)!important}th.svelte-pcimu8{background-color:var(--color-background-heading);color:var(--color-text-heading);font-size:0.58em;letter-spacing:0;padding:2px 0;text-transform:none}";
+	style.id = "svelte-pcimu8-heatmap-style-v9";
+	style.textContent = ".container.svelte-pcimu8{--color-background-heading:transparent;--color-background-day:transparent;--color-background-weeknum:transparent;--color-background-weekend:transparent;--color-dot:var(--text-muted);--color-arrow:var(--text-muted);--color-button:var(--text-muted);--color-text-title:var(--text-normal);--color-text-heading:var(--text-muted);--color-text-day:var(--text-normal);--color-text-today:var(--interactive-accent);--color-text-weeknum:var(--text-muted);--heatmap-cell-gap:var(--heatmap-calendar-cell-gap,3.8px);--heatmap-nav-width:var(--heatmap-calendar-nav-width,187px)}.container.svelte-pcimu8:has(.week-num){--heatmap-nav-width:var(--heatmap-calendar-nav-width-weeknum,215px)}.container.svelte-pcimu8{padding:0;transform:translateX(var(--heatmap-calendar-offset-x,-18px))}.container.is-mobile.svelte-pcimu8{--heatmap-cell-gap:clamp(4px,1.15vw,5px);--heatmap-cell-mobile:clamp(28px,7.6vw,33px);--heatmap-mobile-nav-width:clamp(278px,78vw,312px);margin:0 auto;max-width:100%;padding:0;transform:translateX(var(--heatmap-calendar-mobile-offset-x,-6px));width:max-content}th.svelte-pcimu8{text-align:center}.weekend.svelte-pcimu8{background-color:var(--color-background-weekend)}.calendar.svelte-pcimu8{border-collapse:separate!important;border-spacing:var(--heatmap-cell-gap)!important;margin:0!important;table-layout:auto!important;width:auto!important}.calendar.svelte-pcimu8 td{height:var(--heatmap-day-size,23px)!important;max-width:var(--heatmap-day-size,23px)!important;min-width:var(--heatmap-day-size,23px)!important;padding:0!important;text-align:center;vertical-align:middle;width:var(--heatmap-day-size,23px)!important}.calendar.svelte-pcimu8 th{max-width:var(--heatmap-day-size,23px)!important;min-width:var(--heatmap-day-size,23px)!important;overflow:hidden;padding:2px 0!important;text-align:center;width:var(--heatmap-day-size,23px)!important}.container.is-mobile.svelte-pcimu8 .calendar.svelte-pcimu8 td{height:var(--heatmap-cell-mobile)!important;max-width:var(--heatmap-cell-mobile)!important;min-width:var(--heatmap-cell-mobile)!important;width:var(--heatmap-cell-mobile)!important}.container.is-mobile.svelte-pcimu8 .calendar.svelte-pcimu8 th{max-width:var(--heatmap-cell-mobile)!important;min-width:var(--heatmap-cell-mobile)!important;width:var(--heatmap-cell-mobile)!important}th.svelte-pcimu8{background-color:var(--color-background-heading);color:var(--color-text-heading);font-size:var(--heatmap-heading-font-size,0.58em);letter-spacing:0;padding:2px 0;text-transform:none}";
 	append(document.head, style);
 }
 
@@ -4024,7 +4068,7 @@ function instance$7($$self, $$props, $$invalidate) {
 class Calendar$1 extends SvelteComponent {
 	constructor(options) {
 		super();
-		if (!document.getElementById("svelte-pcimu8-heatmap-style-v8")) add_css$6();
+		if (!document.getElementById("svelte-pcimu8-heatmap-style-v9")) add_css$6();
 
 		init(this, options, instance$7, create_fragment$7, not_equal, {
 			localeData: 17,
@@ -4646,7 +4690,9 @@ class CalendarView extends obsidian.ItemView {
             this.settings = val;
             invalidateCreatedNotesHeatmap();
             if (previousSettings &&
-                (previousSettings.customDailyNoteFolder !== val.customDailyNoteFolder ||
+                (previousSettings.dailyNoteFolder !== val.dailyNoteFolder ||
+                    previousSettings.dailyNoteFormat !== val.dailyNoteFormat ||
+                    previousSettings.customDailyNoteFolder !== val.customDailyNoteFolder ||
                     previousSettings.useMonthlyDailyNoteFolders !== val.useMonthlyDailyNoteFolders)) {
                 dailyNotes.reindex();
                 weeklyNotes.reindex();
@@ -4953,6 +4999,9 @@ class CalendarPlugin extends obsidian.Plugin {
     }
     async loadOptions() {
         const options = await this.loadData();
+        if (options && !options.dailyNoteFolder && options.customDailyNoteFolder) {
+            options.dailyNoteFolder = stripTrailingYearFolder(options.customDailyNoteFolder);
+        }
         if ((options === null || options === void 0 ? void 0 : options.weeklyNoteFormat) === "gggg-[W]ww") {
             options.weeklyNoteFormat = DEFAULT_WEEKLY_NOTE_FORMAT;
         }

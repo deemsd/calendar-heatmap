@@ -1,5 +1,33 @@
 # Changelog
 
+## 2.0.0 (2026-07-12)
+
+### English Release Notes
+
+#### New Features
+
+- **Dedicated daily note settings**: Added plugin-level settings for daily note filename format, template, and base folder. These settings can override Daily Notes or Periodic Notes when needed, while still falling back to them when left empty.
+- **Smarter daily note folder migration**: Existing custom daily note folder settings are migrated into the new daily note folder setting, and trailing year folders such as `2026` or `2026年` are stripped automatically to keep the base folder clean.
+- **Theme-friendly calendar styling**: Calendar layout, cell sizing, navigation spacing, and heatmap colors now expose CSS variables, making the heatmap easier to adjust from a CSS snippet without editing plugin code.
+
+#### Improvements
+
+- **Cleaner settings layout**: Daily note options are grouped under a dedicated "Daily note settings" section, making the settings page easier to understand as the plugin grows.
+- **More flexible visual customization**: Default visuals remain unchanged, but users can now override heatmap levels, cell size, gaps, navigation width, and related layout values through CSS variables.
+
+### 中文发布说明
+
+#### 新功能
+
+- **独立日记设置**：设置页新增日记文件名格式、日记模板、日记文件夹。需要时可以由本插件单独控制；留空时仍会沿用 Daily Notes 或 Periodic Notes 的设置。
+- **更智能的日记文件夹迁移**：旧的自定义每日笔记文件夹会自动迁移到新的日记文件夹设置，并自动去掉末尾的 `2026` 或 `2026年`，让基础目录保持干净。
+- **更适配主题的日历样式**：日历布局、日期方格尺寸、导航间距和热力图颜色改为 CSS 变量，用户可以通过 CSS Snippet 调整，不需要直接改插件代码。
+
+#### 优化
+
+- **设置页更清晰**：日记相关选项统一放到“日记设置”分组里，后续功能增加时不会和通用设置混在一起。
+- **视觉自定义更灵活**：默认显示效果保持不变，但现在可以通过 CSS 变量覆盖热力图颜色、日期方格大小、间距、导航宽度等布局参数。
+
 ## 1.8.2 (2026-06-18)
 
 ### English Release Notes
